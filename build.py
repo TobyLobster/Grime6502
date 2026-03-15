@@ -176,7 +176,7 @@ def add_file(
 
 # Create binary $.!BOOT
 destination_filepath = script_dir / 'build' / 'disc' / '$.!BOOT'
-disassemble('$.!BOOT.py', '$.!BOOT_beebasm.asm')
+#disassemble('$.!BOOT.py', '$.!BOOT_beebasm.asm')
 assemble('$.!BOOT_beebasm.asm', '$.!BOOT')
 make_inf(destination_filepath, '$.!BOOT', 0x003000, 0x003000, '')
 
