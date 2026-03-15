@@ -4105,17 +4105,17 @@ BUG_c64_READ                    = &ffe4
     sta z_c                                                           ; 4798: 85 22       ."  :1998[1]
     lda #0                                                            ; 479a: a9 00       ..  :199a[1]
     sta z_b                                                           ; 479c: 85 23       .#  :199c[1]
-    lda #&f7                                                          ; 479e: a9 f7       ..  :199e[1]
+    lda #<colours                                                     ; 479e: a9 f7       ..  :199e[1]
     sta z_l                                                           ; 47a0: 85 20       .   :19a0[1]
-    lda #&19                                                          ; 47a2: a9 19       ..  :19a2[1]
+    lda #>colours                                                     ; 47a2: a9 19       ..  :19a2[1]
     sta z_h                                                           ; 47a4: 85 21       .!  :19a4[1]
     jsr add_hl_bc                                                     ; 47a6: 20 f3 0e     .. :19a6[1]
     ldx #0                                                            ; 47a9: a2 00       ..  :19a9[1]
     lda (z_l,x)                                                       ; 47ab: a1 20       .   :19ab[1]
     sta z_as                                                          ; 47ad: 85 26       .&  :19ad[1]
-    lda #&d9                                                          ; 47af: a9 d9       ..  :19af[1]
+    lda #<palette_address_table                                       ; 47af: a9 d9       ..  :19af[1]
     sta z_l                                                           ; 47b1: 85 20       .   :19b1[1]
-    lda #&19                                                          ; 47b3: a9 19       ..  :19b3[1]
+    lda #>palette_address_table                                       ; 47b3: a9 19       ..  :19b3[1]
     sta z_h                                                           ; 47b5: 85 21       .!  :19b5[1]
     lda (z_l),y                                                       ; 47b7: b1 20       .   :19b7[1]
     sta z_c                                                           ; 47b9: 85 22       ."  :19b9[1]
@@ -4162,6 +4162,7 @@ BUG_c64_READ                    = &ffe4
     lda #1                                                            ; 47f4: a9 01       ..  :19f4[1]
     rts                                                               ; 47f6: 60          `   :19f6[1]
 
+.colours
     equb 7, 3, 3, 1, 2, 2, 1, 2, 2, 5, 5, 1, 4, 0, 1, 2, 2, 2, 5, 5   ; 47f7: 07 03 03... ... :19f7[1]
     equb 1, 5, 5, 1, 4, 4, 0                                          ; 480b: 01 05 05... ... :1a0b[1]
 
@@ -4255,11 +4256,13 @@ BUG_c64_READ                    = &ffe4
     assert &5d == <bcd_3
     assert &61 == <bcd_5
     assert &34 == <bitmap_font
+    assert &f7 == <colours
     assert &1c == <cos_you_suck_message
     assert &34 == <font_space
     assert &24 == <high_score
     assert &49 == <high_score_message
     assert &2d == <new_high_score_message
+    assert &d9 == <palette_address_table
     assert &52 == <paused_message
     assert &00 == <raw_bitmap
     assert &34 == <raw_palettes
@@ -4285,11 +4288,13 @@ BUG_c64_READ                    = &ffe4
     assert &15 == >bcd_3
     assert &15 == >bcd_5
     assert &0f == >bitmap_font
+    assert &19 == >colours
     assert &09 == >cos_you_suck_message
     assert &12 == >font_space
     assert &36 == >high_score
     assert &15 == >high_score_message
     assert &09 == >new_high_score_message
+    assert &19 == >palette_address_table
     assert &15 == >paused_message
     assert &30 == >raw_bitmap
     assert &14 == >raw_palettes
