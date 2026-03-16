@@ -14,20 +14,10 @@ z_e                             = &0024
 z_d                             = &0025
 z_as                            = &0026
 z_ixl                           = &0028
-t_RetAddrL                      = &0029
 z_ixh                           = &0029
-t_RetAddrH                      = &002a
-t_a                             = &002b
-t_MemdumpL                      = &002e
-t_MemdumpH                      = &002f
-t_MemdumpBL                     = &0030
-t_MemdumpBH                     = &0031
+loop_counter                    = &002a
 cursorX                         = &0040
 cursorY                         = &0041
-l0100                           = &0100
-l0101                           = &0101
-l0104                           = &0104
-l0105                           = &0105
 tile_map2                       = &3300
 playerX1                        = &3610
 random_seed                     = &3611
@@ -50,7 +40,6 @@ anim_tick                       = &3628
 debounce_count                  = &3629
 random_seed_2                   = &362a
 raw_bitmap_end                  = &3640
-BUG_c64_PLOT                    = &e50a
 crtc_address_register           = &fe00
 crtc_register_data              = &fe01
 video_ula_control               = &fe20
@@ -202,8 +191,15 @@ entry_length = * - entry_point
     dex
     bne title_pic_next_line
 .restart_scrolling_message
-    lda #0                                                            ; first character in the string to show
+
+    ; start at BC = which character in the message to start printing at = negative of the screen width
+    lda #0
+    sec
+    sbc #screen_width_g
     sta z_c
+    lda #0
+    sbc #0
+    sta z_b
 .scrolling_message_loop
     ; remember BC
     lda z_c
@@ -247,70 +243,36 @@ entry_length = * - entry_point
     pla
     sta z_c
 
-    ; E = number of characters to skip
-    ; B = number of characters to show
-    lda #0                                                            ; number of characters to skip
-    sta z_e
-    lda z_c
-    sta z_b                                                           ; number of characters to show on screen
-    inc z_b
-    lda #screen_width_g-1                                             ; see if some characters are being skipped
-    sec
-    sbc z_c
-    bcs show_scrolling_message
-    lda #screen_width_g                                               ; we're showing all the characters
-    sta z_b
-    lda z_c
-    sec
-    sbc #screen_width_g-1
-    sta z_e                                                           ; number of characters to skip
-    lda #0
-.show_scrolling_message
-    tax
+    ; BC = character position to start showing the message. 
+    ; e.g. 0 means we show the first character
+
+    ldx #0
+    stx loop_counter
+.next_char
     ldy #screen_height_g-1
     jsr set_cursor_xy
-    lda #<attribution_message
-    sta z_l
-    lda #>attribution_message
-    sta z_h
-    lda #0
-    sta z_d
-    jsr add_hl_de                                                     ; skip characters we're past showing
-    jsr dec_hl
-    ldy #0
-    lda (z_l),y
+    lda z_c
+    pha
+    lda z_b
+    pha
+    ldy loop_counter
+    jsr get_character
     cmp #&ff
     bne text_no_reset
     jmp restart_scrolling_message
 
 .text_no_reset
-    jsr inc_hl
-    ldx z_b
-.text_next_char
-    ldy #0
-    lda (z_l),y
-    cmp #&ff
-    php
-    jsr inc_hl
-    plp
-    bne not_at_end_of_message
-    jsr dec_hl
-    lda #' '                                                          ; If we've reached the end of the string, pad it out with spaces
-.not_at_end_of_message
-    tay
-    lda z_c
-    pha
-    lda z_b
-    pha
-    tya
-    jsr print_char                                                    ; show the character
+    jsr print_char
     pla
     sta z_b
     pla
     sta z_c
-    dex
-    bne text_next_char
-    inc z_c
+    inc loop_counter
+    ldx loop_counter
+    cpx #screen_width_g
+    bne next_char
+    jsr inc_bc
+
     lda z_c
     pha
     lda z_b
@@ -328,11 +290,44 @@ entry_length = * - entry_point
     jmp scrolling_message_loop                                        ; update the scrolling text
 
 ; ****************************************
+; Get character from attibution_message at offset BC+y
+; ****************************************
+.get_character  
+    tya                                                             ; hl = bc + y
+    clc
+    adc z_c
+    sta z_l
+    lda z_b
+    adc #0
+    sta z_h
+    bmi return_space                                                ; if hl < 0 then space
+
+    ; hl += attribution_message
+    lda #<attribution_message
+    clc
+    adc z_l
+    sta z_l
+    lda #>attribution_message
+    adc z_h
+    sta z_h
+
+    ; return char at hl
+    ldy #0
+    lda (z_l),y
+    rts
+
+.return_space
+    lda #' '
+    rts
+
+; ****************************************
 .new_game
     jsr cls
-; set the number of lives to 3
+    
+    ; set the number of lives to 3
     lda #3
     sta lives
+    
     lda #<score
     sta z_l
     lda #>score
@@ -1874,7 +1869,6 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-; unused
 .inc_bc
     inc z_c
     bne return_3
@@ -3459,10 +3453,11 @@ entry_length = * - entry_point
 ; ****************************************
 .attribution_message
     equs "Written By Keith S, based on the DOS game by Mark Elendt. "
-    equs "Thanks to Shane O'Brien,"
+    equs "Fixed for the BBC Micro by TobyLobster. Thanks to Shane O'Brien,"
     equs "Roland Rzasa,Brainslave,Sal Gunduz,Paul Barrick,"
     equs "Richard Farrell,Oleg Tcymbaliuk,Barry White,Robsoft,"
     equs "Ervin Pajor and my other patreons"
+    equs "                               "
     equb &ff
 .url_message
     equs "www.chibiakumas.com/6502"
@@ -3815,16 +3810,19 @@ entry_length = * - entry_point
     clc
     sbc #&1f
     sta z_c
+
     pha                                                               ; push A,X,Y onto the stack
     txa
     pha
     tya
     pha
-    lda z_h
+
+    lda z_h                                                           ; puch HL onto the stack
     pha
     lda z_l
     pha
-    lda #0
+
+    lda #0                                                            ; BC = char * 8
     clc
     rol z_c
     rol a
@@ -3833,18 +3831,21 @@ entry_length = * - entry_point
     rol z_c
     rol a
     sta z_b
+
+    ; HL = bitmap_font + BC
     lda #<bitmap_font
     sta z_l
     lda #>bitmap_font
     sta z_h
     jsr add_hl_bc
+    
+    ; DE = (cursorX + 4) * 16
     lda #0
     sta z_d
     lda cursorX
     clc
     adc #4
     clc
-    ; de = cursorX * 16
     rol a
     rol z_d
     rol a
@@ -3854,20 +3855,22 @@ entry_length = * - entry_point
     rol a
     rol z_d
     sta z_e
-    ; de = de + (cursorY/2) + (cursorY/2)*4 i.e. de += 5 * cursorY/2
+
     clc
     lda cursorY
-    sta z_b
+    sta z_b             ; BX = cursorY * 128
     lda #0
     ror z_b
     ror a
-    tax
-    adc z_e
+    tax    
+    
+    adc z_e             ; DE += BX
     sta z_e
     lda z_b
     adc z_d
     sta z_d
-    txa
+    
+    txa                 ; DE += BX * 4 , i.e. DE += cursorY * 512
     rol a
     rol z_b
     rol a
@@ -3877,47 +3880,56 @@ entry_length = * - entry_point
     lda z_b
     adc z_d
     sta z_d
-    lda #&41
+
+    lda #&41            ; DE += &4180
     sta z_b
     lda #&80
     sta z_c
     jsr add_de_bc
+
     ldy #8
 .do_font_again
     tya
     pha
+
     dey
-    lda (z_l),y
-    tax
-    and #&f0
-    sta z_as
-    jsr swap_nybbles
-    ora z_as
-    sta (z_e),y
+    lda (z_l),y         ; read from font
+    tax                 ;
+    and #&f0            ; get top four bits
+    sta z_as            ;
+    jsr swap_nybbles    ; put into lower four bits
+    ora z_as            ; add in top four bits, a copy of the bottom four bits
+    sta (z_e),y         ; store on screen
+    
+    ; move to next cell on screen
     tya                                                               ; add 8 to Y
     clc
     adc #8
     tay
-    txa
-    and #&0f
-    sta z_as
-    jsr swap_nybbles
-    ora z_as
-    sta (z_e),y
+    
+    txa                 ; 
+    and #&0f            ; get bottom four bits
+    sta z_as            ;
+    jsr swap_nybbles    ; put into top four bits
+    ora z_as            ; add in bottom four bits, a copy of the top four bits
+    sta (z_e),y         ; store on screen
+
     pla
     tay
-    dey
+    dey                 ; move to next row up
     bne do_font_again
+    
     inc cursorX
     lda cursorX
     cmp #40
     bne not_next_line
     jsr newline
 .not_next_line
-    pla
+    pla                                                               ; pull HL from the stack
     sta z_l
     pla
     sta z_h
+
     pla                                                               ; pull A,X,Y from the stack
     tay
     pla
