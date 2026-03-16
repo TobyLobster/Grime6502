@@ -55,13 +55,13 @@ crtc_address_register           = &fe00
 crtc_register_data              = &fe01
 video_ula_control               = &fe20
 video_ula_palette               = &fe21
-system_via_orb_irb              = &fe40
-system_via_ora_ira              = &fe41
+system_via_register_b           = $fe40
+system_via_register_a           = &fe41
 system_via_ddrb                 = &fe42
 system_via_ddra                 = &fe43
+system_via_register_a_no_handshake = &fe4f
 adc_start_conversion_or_status  = &fec0
 adc_read_data_high_byte         = &fec1
-BUG_c64_READ                    = &ffe4
 
     org &3000
 
@@ -76,13 +76,14 @@ BUG_c64_READ                    = &ffe4
     lda #$ff
     sta system_via_ddra
     
-    lda #&9f
-    sta system_via_ora_ira      ; 
-    lda #0
-    sta system_via_orb_irb      ; set sound chip write pin high
-    jsr return_0
-    lda #8
-    sta system_via_orb_irb      ; set sound chip write pin low
+    ; silence the initial beep
+    lda #&9f                                ; set byte of data to send: 'tone 3 volume to silent'
+    sta system_via_register_a               ; 
+    lda #0                                  ;
+    sta system_via_register_b               ; let the sound chip know there is data
+    jsr return_0                            ; delay at least 8us (16 cycles)
+    lda #8                                  ; for the hardware to deal with the data
+    sta system_via_register_b               ; finish up (make inactive)
     
     ; relocation loop. Moves the code from $3000 to $200 for $1900 bytes
     lda #0
@@ -123,7 +124,7 @@ BUG_c64_READ                    = &ffe4
 entry_length = * - entry_point
 
 ; ****************************************
-; Move 1: &304b to &024b for length 6174
+; All the rest of the code runs from 0x200 upwards
 ; ****************************************
     org &0200 + entry_length
 
@@ -144,8 +145,8 @@ entry_length = * - entry_point
     lda #0
     jsr set_memory
 
-    lda #0
-    sta control_mode
+    lda #1                                                             ; control mode 0: fire+direction together sets your ships direction
+    sta control_mode                                                   ; control mode 1: fire rotates your ship
     lda #>raw_palettes
     sta z_d
     lda #<raw_palettes
@@ -204,6 +205,7 @@ entry_length = * - entry_point
     lda #0                                                            ; first character in the string to show
     sta z_c
 .scrolling_message_loop
+    ; remember BC
     lda z_c
     pha
     lda z_b
@@ -239,10 +241,14 @@ entry_length = * - entry_point
     sta z_h
     jsr print_message_hl
 
+    ; recall BC
     pla
     sta z_b
     pla
     sta z_c
+
+    ; E = number of characters to skip
+    ; B = number of characters to show
     lda #0                                                            ; number of characters to skip
     sta z_e
     lda z_c
@@ -632,7 +638,7 @@ entry_length = * - entry_point
     lda z_h
     bit keymap_F3
     bne player_not_fire3
-    lda control_mode                                                  ; Fire 3 (enter) swaps control modes
+    lda control_mode                                                  ; fire 3 swaps control modes
     eor #&ff
     sta control_mode
     jsr debounce                                                      ; wait for fire to be released
@@ -1750,163 +1756,6 @@ entry_length = * - entry_point
     jmp show_tile
 
 ; ****************************************
-; unused debugging tools ('monitor')
-; ****************************************
-    pha                                                               ; push A,X,Y onto the stack
-    txa
-    pha
-    tya
-    pha
-    tay
-    tsx
-    lda l0104,x
-    sta t_RetAddrL
-    lda l0105,x
-    sta t_RetAddrH
-    ldy #1
-    lda (z_ixh),y
-    sta t_MemdumpL
-    iny                                                               ; Y=&02
-    lda (z_ixh),y
-    sta t_MemdumpH
-    iny                                                               ; Y=&03
-    lda (z_ixh),y
-    tax
-    jsr mem_dump_direct_b
-    tsx
-    inc l0104,x
-    inc l0104,x
-    inc l0104,x
-    lda l0104,x
-    cmp #3
-    bcs mem_dump_no_inc_sp_h
-    inc l0105,x
-.mem_dump_no_inc_sp_h
-    pla                                                               ; pull A,X,Y from the stack
-    tay
-    pla
-    tax
-    pla
-    rts
-
-    ldy #8
-.mem_dump_direct_b
-    lda t_MemdumpH
-    sta t_MemdumpBH
-    jsr print_hex
-    lda t_MemdumpL
-    sta t_MemdumpBL
-    jsr print_hex
-    lda #':'
-    jsr print_char
-    jsr newline
-    ldy #0
-.mem_dump_again
-    tya
-    pha
-.mem_dump_again_hex
-    lda (t_MemdumpL),y
-    jsr print_hex
-    lda #' '
-    jsr print_char
-    iny
-    tya
-    and #7
-    bne mem_dump_again_hex
-    pla
-    tay
-.mem_dump_again_char
-    lda (t_MemdumpBL),y
-; BUG: this should be cmp #32
-    cmp #32
-    bcc mem_dump_bad_char
-    cmp #&80
-    bcs mem_dump_bad_char
-.mem_dump_again_char_ret
-    jsr print_char
-    iny
-    tya
-    and #7
-    bne mem_dump_again_char
-    jsr newline
-    dex
-    bne mem_dump_again
-    rts
-
-.mem_dump_bad_char
-    lda #'.'
-    jmp mem_dump_again_char_ret
-
-.monitor
-    php
-    pha
-    lda #'a'
-    jsr print_A_colon
-    pla
-    pha
-    jsr print_hex_and_space
-    txa                                                               ; push X,Y onto the stack
-    pha
-    tya
-    pha
-    lda #'x'
-    jsr print_A_colon
-    txa
-    jsr print_hex_and_space
-    lda #'y'
-    jsr print_A_colon
-    tya
-    jsr print_hex_and_space
-    lda #'s'
-    jsr print_A_colon
-    tsx
-    txa
-    clc
-    adc #6
-    jsr print_hex_and_space
-    lda #'f'
-    jsr print_A_colon
-    tsx
-    txa                                                               ; add 4 to X
-    clc
-    adc #4
-    tax
-    lda l0100,x
-    jsr print_hex_and_space
-    lda #'p'
-    jsr print_A_colon
-    tsx
-    txa
-    clc
-    adc #5
-    pha
-    tax
-    lda l0101,x
-    jsr print_hex
-    pla
-    tax
-    lda l0100,x
-    jsr print_hex
-    jsr newline
-    pla                                                               ; pull flags,A,X,Y from the stack
-    tay
-    pla
-    tax
-    pla
-    plp
-    rts
-
-.print_A_colon
-    jsr print_char
-    lda #&3a
-    jmp print_char
-
-.print_hex_and_space
-    jsr print_hex
-    lda #&20
-    jmp print_char
-
-; ****************************************
 .keymap_U
     equb %00000001                                                    ; bitmask
 .keymap_D
@@ -1988,45 +1837,6 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-; unused?
-.read_char
-    tya
-    pha
-.read_char_loop
-    ; BUG: Should be $ffe0 for OSRDCH. It looks like this is C64 code to read from the
-    ; keyboard.
-    jsr BUG_c64_READ
-    beq read_char_loop
-    sta t_a
-    pla
-    tay
-    lda t_a
-    rts
-
-; ****************************************
-; unused?
-.swap_xy
-    pha                                                               ; push A,X onto the stack
-    txa
-    pha
-    tya
-    tax
-    pla                                                               ; pull A,Y from the stack
-    tay
-    pla
-    rts
-
-; ****************************************
-; unused?
-.get_pos
-    sec
-; BUG: Random call into middle of OS. This looks like C64 code. It is calling C64's
-; PLOT routine, to get the cursor position
-    jsr BUG_c64_PLOT
-    jsr swap_xy
-    rts
-
-; ****************************************
 ; Set memory to accumulator value from HL for BC bytes.
 .set_memory
     ldy #0
@@ -2064,7 +1874,7 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-; unused?
+; unused
 .inc_bc
     inc z_c
     bne return_3
@@ -2072,6 +1882,7 @@ entry_length = * - entry_point
 .return_3
     rts
 
+; unused
 .inc_de
     inc z_e
     bne return_4
@@ -2106,7 +1917,7 @@ entry_length = * - entry_point
     pla
     rts
 
-; unused?
+; unused
 .dec_de
     pha
     lda z_e
@@ -2137,6 +1948,7 @@ entry_length = * - entry_point
     sta z_h
     rts
 
+; unused
 .sub_hl_bc
     sec
     lda z_l
@@ -2147,6 +1959,7 @@ entry_length = * - entry_point
     sta z_h
     rts
 
+; unused
 .sub_hl_de
     sec
     lda z_l
@@ -3622,7 +3435,7 @@ entry_length = * - entry_point
 
 ; ****************************************
 .raw_palettes
-    ; format: &0GBR [or is that &0GRB, as the code would suggest?]
+    ; format: &0GBR [or is that &0GRB, as the comments in do_set_palette suggest?]
     equw 0
     equw &061f
     equw &0f00
@@ -3645,10 +3458,11 @@ entry_length = * - entry_point
 
 ; ****************************************
 .attribution_message
-    equs "Written By Keith S, based on the DOS game by Mark Elendt.."
-    equs ". Thanks to Shane O'Brien,Roland Rzasa,Brainslave,Sal Gund"
-    equs "uz,Paul Barrick,Richard Farrell,Oleg Tcymbaliuk,Barry Whit"
-    equs "e,Robsoft,Ervin Pajor and my other patreons"
+    equs "Written By Keith S, based on the DOS game by Mark Elendt. "
+    equs "Thanks to Shane O'Brien,"
+    equs "Roland Rzasa,Brainslave,Sal Gunduz,Paul Barrick,"
+    equs "Richard Farrell,Oleg Tcymbaliuk,Barry White,Robsoft,"
+    equs "Ervin Pajor and my other patreons"
     equb &ff
 .url_message
     equs "www.chibiakumas.com/6502"
@@ -3720,7 +3534,7 @@ entry_length = * - entry_point
     jsr read_joystick_axes
     lda #1
     jsr read_joystick_axes
-    lda system_via_orb_irb                                            ; fire button
+    lda system_via_register_b                                         ; fire button
     and #&10
     ora z_as
 .finish_read_controls
@@ -3949,11 +3763,6 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-    ; unused?
-    jsr inc_de
-    rts
-
-; ****************************************
 .initialize_screen
     lda #&d8
     sta video_ula_control
@@ -4122,10 +3931,14 @@ entry_length = * - entry_point
 
 ; ****************************************
 .palette_values
-    equb &03, &13, &43, &53     ; 3=blue
-    equb &22, &32, &62, &72     ; 2=magenta
-    equb &84, &94, &c4, &d4     ; 4=yellow
-    equb &a0, &b0, &e0, &f0     ; 0=white
+.palette0
+    equb &03, &13
+.palette1
+    equb &22, &32, &43, &53, &62, &72
+.palette2
+    equb &84, &94
+.palette3
+    equb &a0, &b0, &c4, &d4, &e0, &f0
 
 ; ****************************************
 .newline
@@ -4190,17 +4003,17 @@ entry_length = * - entry_point
     sta z_c
     lda #0
     sta z_b
-    lda #&f7
+    lda #<colour_indices
     sta z_l
-    lda #&19
+    lda #>colour_indices
     sta z_h
     jsr add_hl_bc
     ldx #0
     lda (z_l,x)
     sta z_as
-    lda #&d9
+    lda #<palette_address_table
     sta z_l
-    lda #&19
+    lda #>palette_address_table
     sta z_h
     lda (z_l),y
     sta z_c
@@ -4223,8 +4036,8 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-; unused
-    equw 0,0,0,0
+.palette_address_table
+    equw palette0,palette1,palette2,palette3
 
 ; ****************************************
 .pal_colour_conversionR
@@ -4258,58 +4071,63 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-; unused
+.colour_indices
     equb 7, 3, 3, 1, 2, 2, 1, 2, 2, 5, 5, 1, 4, 0, 1, 2, 2, 2, 5, 5
     equb 1, 5, 5, 1, 4, 4, 0
 
 ; ****************************************
 .chibi_sound
     pha
-    lda #$ff
-    sta system_via_ddra
+    lda #$ff                                ; set all bits to write
+    sta system_via_ddra                     ; to the data direction port
     pla
+    ; A as binary is 'abpppppp' where p = pitch, a = noise, b = volume
+    ; 0 means silent
     beq silent
+    
+    ; send pitch for channel 1
     tax
     lda #&cf
-    sta system_via_ora_ira
+    jsr send_byte_to_sound_chip             ; sends frequency F0-F3 of in lowest 4 bits
     txa
     and #&3f
-    sta system_via_ora_ira
+    jsr send_byte_to_sound_chip             ; sends frequency F4-F9 of in lowest 6 bits
+
     txa
-    and #&40
-    asl a
-    adc #&80
-    rol a
-    asl a
-    adc #&80
-    rol a
-    tay
-    eor #&d4
-    sta system_via_ora_ira
-    lda #&ff
-    sta system_via_ora_ira
-    txa
-    and #&80
-    beq sound_finish
-    lda #&df
-    sta system_via_ora_ira
-    lda #&e7
-    sta system_via_ora_ira
+    ldy #&d0                                ; Y = 11010000 = channel 1 full volume
+    and #&40                                ; extract the volume bit
+    bne got_volume_byte_in_y
+    ldy #&d6                                ; Y = 11010110 = channel 1 quieter volume
+.got_volume_byte_in_y
     tya
-    eor #&f4
-    sta system_via_ora_ira
-.sound_finish
-    lda #8
-    sta system_via_orb_irb
-    lda #0
-    sta system_via_orb_irb
-    rts
+    jsr send_byte_to_sound_chip             ; sends volume for channel 1
+
+    ; noise
+    txa
+    bpl return_7                            ; if no noise required, branch (done)
+    
+    ; noise control
+    lda #&e7                                ; 11100111 = noise control, white noise, frequency set by channel 1
+    jsr send_byte_to_sound_chip             ; sends noise control byte
+    tya                                     ;
+    ora #&f0                                ; 1111xxxx = set noise volume to xxxx
+    eor #4                                  ; invert the volume for the noise (loud tone=quiet noise and vice versa)
+    jmp send_byte_to_sound_chip             ; sends noise volume
 
 .silent
-    lda #&ff
-    sta system_via_ora_ira
-    lda #&df
-    sta system_via_ora_ira
+    lda #&df                                ; 11011111 = channel 1 volume silent
+    jsr send_byte_to_sound_chip
+    lda #&ff                                ; 11111111 = noise volume silent
+    ; fall through...
+    
+.send_byte_to_sound_chip
+    sta system_via_register_a_no_handshake  ; send byte A to chip
+    lda #0                                  ;
+    sta system_via_register_b               ; let the sound chip know there is data
+    jsr return_7                            ; delay at least 8us (16 cycles)
+    lda #8                                  ; for the hardware to deal with the data
+    sta system_via_register_b               ; finish up (make inactive)
+.return_7
     rts
 
 ; ****************************************
@@ -4326,15 +4144,13 @@ entry_length = * - entry_point
     ;    Up down axis in bits 2,3
     ;
     ; (then call finish_read_controls to set z_h and z_l)
-    
+
     jsr read_keyboard
     ;jsr read_joystick
-    rts
+    jmp finish_read_controls
 
-key_code_escape                       = $70
+;key_code_escape                       = $70
 key_code_p                            = $37
-key_code_s                            = $51
-key_code_q                            = $10
 key_code_space                        = $62
 key_code_colon                        = $48
 key_code_return                       = $49
@@ -4369,9 +4185,6 @@ key_code_slash                        = $68
 .key_state_slash
     equb 0
 
-system_via_register_b                        = $fe40    ;
-system_via_data_direction_register_a         = $fe43    ; System VIA data direction register A (DDRA)
-system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A without handshaking
 
 ; ****************************************
 .read_keyboard
@@ -4383,7 +4196,7 @@ system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A 
     lda #3                              ;
     sta system_via_register_b           ; Disable keyboard auto scanning
     lda #$7f                            ;
-    sta system_via_data_direction_register_a ; Set System VIA Port A to output on bits 0-6, and input on bit 7
+    sta system_via_ddra                 ; Set System VIA Port A to output on bits 0-6, and input on bit 7
 
     ; We read the keys in a loop to see if they are currently pressed or released.
     ldx #keys_to_test_end - keys_to_test - 1 ;
@@ -4399,7 +4212,7 @@ system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A 
     bpl read_key_loop                   ;
 
     lda #$ff                            ;
-    sta system_via_data_direction_register_a ; Set System VIA Port A to output on all bits 0-7
+    sta system_via_ddra                 ; Set System VIA Port A to output on all bits 0-7
     lda #11                             ; Enable keyboard auto scanning
     sta system_via_register_b           ;
 
@@ -4408,12 +4221,12 @@ system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A 
     asl key_state_p
     rol a                               ; bit 7 = pause
     clc
-    rol a                               ; bit 6 = change control mode (not used)
+    rol a                               ; bit 6 = fire3 = change control mode (not used)
     asl key_state_return
     rol a                               ; bit 5 = fire2
     asl key_state_space
     
-    ; invert carry for the fire button
+    ; invert carry for the fire button [because 0 means pressed on C64, if I remember correctly?]
     bcc skip1
     clc
     bcc skip2
@@ -4434,12 +4247,13 @@ system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A 
     and #$0f
     sta z_as
     pla
-    jmp finish_read_controls
+    rts
 
 ; ****************************************
 ; final byte
 ; ****************************************
     equb 0
+end = *
 
     ; Copy the newly assembled block of code back to it's proper place in the binary
     ; file.
@@ -4448,7 +4262,7 @@ system_via_register_a_no_handshake           = $fe4f    ; System VIA Register A 
 
     ; Clear the area of memory we just temporarily used to assemble the new block,
     ; allowing us to assemble there again if needed
-    clear start, &1a69
+    clear start, end
 
     ; Set the program counter to the next position in the binary file.
     org &3000 + entry_length + (* - start)
