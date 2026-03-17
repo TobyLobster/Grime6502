@@ -16,6 +16,9 @@ z_as                            = &0026
 z_ixl                           = &0028
 z_ixh                           = &0029
 loop_counter                    = &002a
+temp_controls                   = &002b
+joystick_enabled                = &002c
+joystick_button_pressed         = &002d
 cursorX                         = &0040
 cursorY                         = &0041
 tile_map2                       = &3300
@@ -62,10 +65,10 @@ adc_read_data_high_byte         = &fec1
 ; ****************************************
 .entry_point
     sei
-    lda #$ff
-    sta system_via_ddra
-    
+
     ; silence the initial beep
+    lda #$ff
+    sta system_via_ddra    
     lda #&9f                                ; set byte of data to send: 'tone 3 volume to silent'
     sta system_via_register_a               ; 
     lda #0                                  ;
@@ -136,6 +139,8 @@ entry_length = * - entry_point
 
     lda #1                                                             ; control mode 0: fire+direction together sets your ships direction
     sta control_mode                                                   ; control mode 1: fire rotates your ship
+    lda #0
+    sta joystick_enabled                                               ; disable joystick controls until fire pressed
     lda #>raw_palettes
     sta z_d
     lda #<raw_palettes
@@ -290,7 +295,7 @@ entry_length = * - entry_point
     jmp scrolling_message_loop                                        ; update the scrolling text
 
 ; ****************************************
-; Get character from attibution_message at offset BC+y
+; Get character from attribution_message at offset BC+y
 ; ****************************************
 .get_character  
     tya                                                             ; hl = bc + y
@@ -302,7 +307,8 @@ entry_length = * - entry_point
     sta z_h
     bmi return_space                                                ; if hl < 0 then space
 
-    ; hl += attribution_message
+.not_at_end
+    ; hl += ATTRIBUTION_MESSAGE
     lda #<attribution_message
     clc
     adc z_l
@@ -2850,7 +2856,7 @@ entry_length = * - entry_point
     equb %00001000
     equb %00000000
 
-.font_space
+.sprites
     equb %00000000
     equb %00000000
     equb %00000000
@@ -3429,8 +3435,8 @@ entry_length = * - entry_point
 
 ; ****************************************
 .raw_palettes
-    ; format: &0GBR [or is that &0GRB, as the comments in do_set_palette suggest?]
-    equw 0
+    ; format: &0GRB
+    equw &0000
     equw &061f
     equw &0f00
     equw &0fac
@@ -3446,9 +3452,6 @@ entry_length = * - entry_point
     equw &0ddd
     equw &0eee
     equw &0fff
-
-    ; unused
-    equb 0, 0
 
 ; ****************************************
 .attribution_message
@@ -3523,15 +3526,30 @@ entry_length = * - entry_point
 
 ; ****************************************
 .read_joystick
+    ; check the fire button
+    lda system_via_register_b                                         ; get fire button
+    and #&10                                                          ; just the fire button
+    eor #&10                                                          ; invert so 1=pressed, 0=not pressed
+    beq not_pressed
+    sta joystick_enabled
+.not_pressed
+    sta joystick_button_pressed
+
+    lda joystick_enabled
+    beq return_8
+    lda #&0F                                                          ; set write bits 0-3, read bits 4-7
+    sta system_via_ddrb                                               ; i.e. standard bit pattern to read fire button in bit 4
     lda #0
-    sta system_via_ddrb                                               ; port to read for fire button
-    sta z_as
-    jsr read_joystick_axes
+    sta z_as                                                          ; zero result
+    jsr read_joystick_axis
     lda #1
-    jsr read_joystick_axes
-    lda system_via_register_b                                         ; fire button
-    and #&10
-    ora z_as
+    jsr read_joystick_axis
+
+    lda joystick_button_pressed
+    ora z_as                                                          ; return with A containing both the directions and fire, z_as is just the directions
+.return_8
+    rts
+    
 .finish_read_controls
     eor #&ef
     sta z_h
@@ -3540,35 +3558,37 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
-.read_joystick_axes
-    sta adc_start_conversion_or_status
-.read_joystick_axes_wait_loop
+.read_joystick_axis
+    sta adc_start_conversion_or_status                                ; start conversion
+
+    ; wait for conversion to finish
+.read_joystick_axis_wait_loop
     lda adc_start_conversion_or_status
-    and #&80
-    bne read_joystick_axes_wait_loop
-    lda adc_read_data_high_byte
+    bmi read_joystick_axis_wait_loop
+    
+    lda adc_read_data_high_byte                                       ; read result
     cmp #&df
-    bcs read_joystick_dual_high
+    bcs read_joystick_axis_high
     cmp #&20
-    bcc read_joystick_dual_low
-    clc
-    rol z_as
-    clc
-    rol z_as
+    bcc read_joystick_axis_low
+    
+    ; axis is in neutral position, two zero bits '00' are shifted into result
+    asl z_as
+    asl z_as
     rts
 
-.read_joystick_dual_high
-    clc
-    rol z_as
+.read_joystick_axis_high
+    ; two bits '01' are shifted into result
+    asl z_as
     sec
     rol z_as
     rts
 
-.read_joystick_dual_low
+.read_joystick_axis_low
+    ; two bits '10' are shifted into result
     sec
     rol z_as
-    clc
-    rol z_as
+    asl z_as
     rts
 
 ; ****************************************
@@ -3670,37 +3690,46 @@ entry_length = * - entry_point
 
 ; ****************************************
 .show_tile
-    sta z_e                                                           ; need A for colour later
-    lda #0
-    clc
-    rol z_e
-    rol a
-    rol z_e
-    rol a
-    rol z_e
-    rol a
-    rol z_e
-    rol a
-    sta z_d
-    lda #<font_space
+    ; HL = A * 16
+    asl a
     sta z_l
-    lda #>font_space
-    sta z_h
-    lda z_b
-    clc
-    tax
-    lda z_c
-    clc
+    lda #0
     rol a
+    rol z_l
+    rol a
+    rol z_l
+    rol a
+    rol z_l
+    rol a
+    sta z_h
+
+    ; HL += sprites
+    lda #<sprites
+    clc
+    adc z_l
+    sta z_l
+    lda #>sprites
+    adc z_h
+    sta z_h
+
+    ; X = B
+    ldx z_b
+
+    ; Y = C * 8
+    lda z_c
+    asl a
     rol a
     rol a
     tay
-    jsr add_hl_de                                                     ; calculate source position of tile data
-    jsr get_screen_pos
 
-    ; copy 16 bytes to screen meory for the tile
+    jsr get_screen_pos                                                ; DE = screen address
+
+    ; copy 16 bytes to screen memory for the tile
     ldy #&0f                                                          ; bytes in tile
 .copy_to_screen_loop
+    lda (z_l),y                                                       ; copy bytes to screen
+    sta (z_e),y
+    dey
     lda (z_l),y                                                       ; copy bytes to screen
     sta (z_e),y
     dey
@@ -3708,54 +3737,76 @@ entry_length = * - entry_point
     rts
 
 ; ****************************************
+; Set DE = screen address of tile coordinates (X,Y)
 .get_screen_pos
-    ; remember BC
-    lda z_c
-    pha
-    lda z_b
-    pha
+    ; DE = X * 16
     lda #0
     sta z_d
     txa
-    clc
+    asl a
     rol a
-    rol z_d
     rol a
-    rol z_d
-    rol a
-    rol z_d
     rol a
     rol z_d
     sta z_e
+
+    ; DE += row * 640       (row = Y/8)
     tya
     and #&f8
     lsr a
     lsr a
+    tay
+    lda screen_row_addresses,y
     clc
-    sta z_b
-    adc z_d
-    sta z_d
-    lda #0
-    ror z_b
-    ror a
-    ror z_b
-    ror a
     adc z_e
     sta z_e
-    lda z_b
+    lda screen_row_addresses+1,y
     adc z_d
     sta z_d
-    lda #&41
-    sta z_b
+
+    ; DE += &41C0 = screen address
     lda #&c0
-    sta z_c
-    jsr add_de_bc
-    ; recall BC
-    pla
-    sta z_b
-    pla
-    sta z_c
+    clc
+    adc z_e
+    sta z_e
+    lda #&41
+    adc z_d
+    sta z_d
     rts
+
+.screen_row_addresses
+    equw 0 * 640
+    equw 1 * 640
+    equw 2 * 640
+    equw 3 * 640
+    equw 4 * 640
+    equw 5 * 640
+    equw 6 * 640
+    equw 7 * 640
+    equw 8 * 640
+    equw 9 * 640
+    equw 10 * 640
+    equw 11 * 640
+    equw 12 * 640
+    equw 13 * 640
+    equw 14 * 640
+    equw 15 * 640
+    equw 16 * 640
+    equw 17 * 640
+    equw 18 * 640
+    equw 19 * 640
+    equw 20 * 640
+    equw 21 * 640
+    equw 22 * 640
+    equw 23 * 640
+    equw 24 * 640
+    equw 25 * 640
+    equw 26 * 640
+    equw 27 * 640
+    equw 28 * 640
+    equw 29 * 640
+    equw 30 * 640
+    equw 31 * 640
 
 ; ****************************************
 .initialize_screen
@@ -3823,8 +3874,7 @@ entry_length = * - entry_point
     pha
 
     lda #0                                                            ; BC = char * 8
-    clc
-    rol z_c
+    asl z_c
     rol a
     rol z_c
     rol a
@@ -3845,8 +3895,7 @@ entry_length = * - entry_point
     lda cursorX
     clc
     adc #4
-    clc
-    rol a
+    asl a
     rol z_d
     rol a
     rol z_d
@@ -4053,8 +4102,7 @@ entry_length = * - entry_point
 
 ; ****************************************
 .pal_colour_conversionR
-    clc
-    rol a
+    asl a
     rol a
     rol a
     rol a
@@ -4157,8 +4205,15 @@ entry_length = * - entry_point
     ;
     ; (then call finish_read_controls to set z_h and z_l)
 
+    jsr read_joystick
+    sta temp_controls
     jsr read_keyboard
-    ;jsr read_joystick
+    ora temp_controls
+    eor #&10                             ; invert fire state
+    pha                                
+    and #&0f
+    sta z_as
+    pla
     jmp finish_read_controls
 
 ;key_code_escape                       = $70
@@ -4223,6 +4278,7 @@ key_code_slash                        = $68
     dex                                 ;
     bpl read_key_loop                   ;
 
+    ; finish up, restore state
     lda #$ff                            ;
     sta system_via_ddra                 ; Set System VIA Port A to output on all bits 0-7
     lda #11                             ; Enable keyboard auto scanning
@@ -4233,19 +4289,10 @@ key_code_slash                        = $68
     asl key_state_p
     rol a                               ; bit 7 = pause
     clc
-    rol a                               ; bit 6 = fire3 = change control mode (not used)
+    rol a                               ; bit 6 = fire3 = change control mode [not used for now]
     asl key_state_return
     rol a                               ; bit 5 = fire2
     asl key_state_space
-    
-    ; invert carry for the fire button [because 0 means pressed on C64, if I remember correctly?]
-    bcc skip1
-    clc
-    bcc skip2
-.skip1
-    sec
-.skip2
-
     rol a                               ; bit 4 = fire
     asl key_state_x
     rol a                               ; bit 3 = right
@@ -4255,10 +4302,11 @@ key_code_slash                        = $68
     rol a                               ; bit 1 = down
     asl key_state_colon
     rol a                               ; bit 0 = up
+
     pha
     and #$0f
-    sta z_as
-    pla
+    sta z_as                            ; z_as just contains the directions
+    pla                                 ; A contains all the controls
     rts
 
 ; ****************************************
