@@ -12,8 +12,9 @@ so the source here was disassembled from the binary, and then labelled using the
 the code at https://www.youtube.com/watch?v=71-iRVYH6aY for reference.
 
 The code has now been expanded to allow keyboard controls as well as joysticks, and fixes were made to the 
-initialisation, the sound, and the joystick code. Some optimisations were also made to rendering font 
-characters and sprites, and to set the game speed to a reasonable rate.
+initialisation, the sound, the joystick code, and the random number routine. Some optimisations were also 
+made to rendering font characters and sprites, and to set the game speed to a reasonable rate. None of the 
+gameplay has been changed.
 
 ## Requirements
 * The beebasm assembler

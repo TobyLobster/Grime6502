@@ -1809,37 +1809,6 @@ entry_length = * - entry_point
     equb %01111111
 
 ; ****************************************
-.print_hex
-    pha
-    clc
-    and #&f0
-    ror a
-    ror a
-    ror a
-    ror a
-    jsr print_hex_digit
-    pla
-    pha
-    and #&0f
-    jsr print_hex_digit
-    pla
-    rts
-
-.print_hex_digit
-    cmp #10
-    bcs print_hex_letter
-    clc
-    adc #'0'
-    jsr print_char
-    rts
-
-.print_hex_letter
-    clc
-    adc #&37
-    jsr print_char
-    rts
-
-; ****************************************
 .print_message_hl
     ldy #0
 .print_message_loop
@@ -1848,8 +1817,7 @@ entry_length = * - entry_point
     beq return_1
     jsr print_char
     iny
-    jmp print_message_loop
-
+    bne print_message_loop
 .return_1
     rts
 
@@ -3491,7 +3459,7 @@ entry_length = * - entry_point
     equb 0, 0, 0, &20
 
 ; ****************************************
-; The title screen 'GRIME' logo. Each row of the logo is 24 bytes wide.
+; The title screen 'GRIME 6502' logo. Each row of the logo is 24 bytes wide. Squint and you'll see it.
 ; ****************************************
 .title_screen_cells
     equb 0,   0,   0,   9,   9,   0,   9,   9,   9,   0,   0,   9,   0,   0,   9,   9,   9,   0,   9,   0,   9,   9,   0,   0
@@ -3832,6 +3800,8 @@ entry_length = * - entry_point
     jsr set_memory
     ldx #0
     ldy #0
+    ; fall through...
+
 .set_cursor_xy
     txa
     sta cursorX
