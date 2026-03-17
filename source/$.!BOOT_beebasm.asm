@@ -1,7 +1,7 @@
 ; Constants
 crtc_horz_total = 0
-keymap_any_fire = 207
-keymap_pause    = 128
+keymap_any_fire = %11001111
+keymap_pause    = %10000000
 screen_height_g = 24
 screen_width_g  = 32
 
@@ -138,7 +138,7 @@ entry_length = * - entry_point
     jsr set_memory
 
     lda #1                                                             ; control mode 0: fire+direction together sets your ships direction
-    sta control_mode                                                   ; control mode 1: fire rotates your ship
+    sta control_mode                                                   ; control mode 1: two 'fire' controls rotate your ship clockwise/anticlockwise
     lda #0
     sta joystick_enabled                                               ; disable joystick controls until fire pressed
     lda #>raw_palettes
@@ -278,16 +278,24 @@ entry_length = * - entry_point
     bne next_char
     jsr inc_bc
 
-    lda z_c
-    pha
+    ; delay for 1000
     lda z_b
     pha
-    inc random_seed
-    jsr read_both_controls
-    pla
+    lda z_c
+    pha
+    lda #<1000
+    sta z_c
+    lda #>1000
     sta z_b
+    jsr pause
     pla
     sta z_c
+    pla
+    sta z_b
+
+    inc random_seed
+    jsr read_both_controls
+
     lda z_h
     ora #keymap_any_fire
     cmp #&ff
@@ -296,6 +304,7 @@ entry_length = * - entry_point
 
 ; ****************************************
 ; Get character from attribution_message at offset BC+y
+; If the offset is before the start of the message, we return a space character
 ; ****************************************
 .get_character  
     tya                                                             ; hl = bc + y
@@ -396,6 +405,23 @@ entry_length = * - entry_point
 
 .do_game_pause
     jsr force_animate
+
+    ; delay for 2000 otherwise the game is a little too fast imho
+    lda z_b
+    pha
+    lda z_c
+    pha
+    lda #<2000
+    sta z_c
+    lda #>2000
+    sta z_b
+    jsr pause
+    pla
+    sta z_c
+    pla
+    sta z_b
+
+
 .process_player
     jsr repaint_screen
     ldx #0                                                            ; print score on top left
@@ -1114,35 +1140,25 @@ entry_length = * - entry_point
     equb &ff
 
 ; ****************************************
+; See [this algorithm](https://github.com/bbbradsmith/prng_6502/blob/master/galois16.s)
 .get_random
-    tya
-    pha
-    lda random_seed
-    and #%00000111
-    tay
-    lda random_source,y
-    eor random_seed
-    sta z_as
-    lda random_seed
-    and #%00111000
-    lsr a
-    lsr a
-    lsr a
-    tay
-    lda random_source,y
-    eor z_as
-    sta z_as
-    inc random_seed
-    lda random_seed_2
-    tay
-    lda game_loop,y
-    eor z_as
-    sta z_as
-    sta random_seed_2
-    pla
-    tay
-    lda z_as
-    rts
+    txa                                         ; remember X
+    pha                                         ;
+    ldx #8                                      ;
+    lda random_seed                             ;
+.bit_loop
+    asl a                                       ;
+    rol random_seed_2                           ;
+    bcc skip_eor                                ;
+    eor #$2d                                    ;
+.skip_eor
+    dex                                         ;
+    bne bit_loop                                ;
+    sta random_seed                             ;
+    pla                                         ; recall X
+    tax                                         ;
+    lda random_seed                             ;
+    rts                                         ;
 
 ; ****************************************
 .pause
@@ -1562,7 +1578,7 @@ entry_length = * - entry_point
     lda z_h
     ora #keymap_any_fire
     cmp #&ff
-    beq wait_for_fire2                                                ; wait for any key to be released
+    beq wait_for_fire2                                                ; wait for any fire key to be released
     pla
     sta z_h
     pla
@@ -1979,16 +1995,6 @@ entry_length = * - entry_point
     adc z_d
     sta z_d
     rts
-
-.swap_nybbles
-    asl a
-    adc #&80
-    rol a
-    asl a
-    adc #&80
-    rol a
-    rts
-
 
 ; ****************************************
 .bitmap_font
@@ -2856,6 +2862,7 @@ entry_length = * - entry_point
     equb %00001000
     equb %00000000
 
+; ****************************************
 .sprites
     equb %00000000
     equb %00000000
@@ -3456,11 +3463,11 @@ entry_length = * - entry_point
 ; ****************************************
 .attribution_message
     equs "Written By Keith S, based on the DOS game by Mark Elendt. "
-    equs "Fixed for the BBC Micro by TobyLobster. Thanks to Shane O'Brien,"
+    equs "Fixes for the BBC Micro by TobyLobster. Thanks to Shane O'Brien,"
     equs "Roland Rzasa,Brainslave,Sal Gunduz,Paul Barrick,"
     equs "Richard Farrell,Oleg Tcymbaliuk,Barry White,Robsoft,"
     equs "Ervin Pajor and my other patreons"
-    equs "                               "
+    equs "                                "
     equb &ff
 .url_message
     equs "www.chibiakumas.com/6502"
@@ -3550,13 +3557,6 @@ entry_length = * - entry_point
 .return_8
     rts
     
-.finish_read_controls
-    eor #&ef
-    sta z_h
-    lda #&ff
-    sta z_l
-    rts
-
 ; ****************************************
 .read_joystick_axis
     sta adc_start_conversion_or_status                                ; start conversion
@@ -3661,7 +3661,10 @@ entry_length = * - entry_point
 .print_bcd_byte
     pha
     and #&f0
-    jsr swap_nybbles
+    lsr a
+    lsr a
+    lsr a
+    lsr a    
     jsr print_bcd_digit
     pla
     and #&0f
@@ -3764,7 +3767,7 @@ entry_length = * - entry_point
     adc z_d
     sta z_d
 
-    ; DE += &41C0 = screen address
+    ; DE += &41C0  (offset to screen address)
     lda #&c0
     clc
     adc z_e
@@ -3896,45 +3899,33 @@ entry_length = * - entry_point
     clc
     adc #4
     asl a
-    rol z_d
     rol a
-    rol z_d
     rol a
     rol z_d
     rol a
     rol z_d
     sta z_e
 
-    clc
+    ; DE += row * 640       (row = Y/8)
     lda cursorY
-    sta z_b             ; BX = cursorY * 128
-    lda #0
-    ror z_b
-    ror a
-    tax    
-    
-    adc z_e             ; DE += BX
-    sta z_e
-    lda z_b
-    adc z_d
-    sta z_d
-    
-    txa                 ; DE += BX * 4 , i.e. DE += cursorY * 512
-    rol a
-    rol z_b
-    rol a
-    rol z_b
+    asl a
+    tay
+    lda screen_row_addresses,y
+    clc
     adc z_e
     sta z_e
-    lda z_b
+    lda screen_row_addresses+1,y
     adc z_d
     sta z_d
 
-    lda #&41            ; DE += &4180
-    sta z_b
+    ; DE += &4180 = screen address
     lda #&80
-    sta z_c
-    jsr add_de_bc
+    clc
+    adc z_e
+    sta z_e
+    lda #&41
+    adc z_d
+    sta z_d
 
     ldy #8
 .do_font_again
@@ -3946,7 +3937,10 @@ entry_length = * - entry_point
     tax                 ;
     and #&f0            ; get top four bits
     sta z_as            ;
-    jsr swap_nybbles    ; put into lower four bits
+    lsr a
+    lsr a
+    lsr a
+    lsr a
     ora z_as            ; add in top four bits, a copy of the bottom four bits
     sta (z_e),y         ; store on screen
     
@@ -3959,7 +3953,10 @@ entry_length = * - entry_point
     txa                 ; 
     and #&0f            ; get bottom four bits
     sta z_as            ;
-    jsr swap_nybbles    ; put into top four bits
+    asl a
+    asl a
+    asl a
+    asl a
     ora z_as            ; add in bottom four bits, a copy of the top four bits
     sta (z_e),y         ; store on screen
 
@@ -4139,7 +4136,7 @@ entry_length = * - entry_point
 .chibi_sound
     pha
     lda #$ff                                ; set all bits to write
-    sta system_via_ddra                     ; to the data direction port
+    sta system_via_ddra                     ; for data direction register a
     pla
     ; A as binary is 'abpppppp' where p = pitch, a = noise, b = volume
     ; 0 means silent
@@ -4153,6 +4150,7 @@ entry_length = * - entry_point
     and #&3f
     jsr send_byte_to_sound_chip             ; sends frequency F4-F9 of in lowest 6 bits
 
+    ; set volume required
     txa
     ldy #&d0                                ; Y = 11010000 = channel 1 full volume
     and #&40                                ; extract the volume bit
@@ -4162,13 +4160,15 @@ entry_length = * - entry_point
     tya
     jsr send_byte_to_sound_chip             ; sends volume for channel 1
 
-    ; noise
+    ; check for noise
     txa
     bpl return_7                            ; if no noise required, branch (done)
-    
+
     ; noise control
     lda #&e7                                ; 11100111 = noise control, white noise, frequency set by channel 1
     jsr send_byte_to_sound_chip             ; sends noise control byte
+    
+    ; set noise volume
     tya                                     ;
     ora #&f0                                ; 1111xxxx = set noise volume to xxxx
     eor #4                                  ; invert the volume for the noise (loud tone=quiet noise and vice versa)
@@ -4203,34 +4203,41 @@ entry_length = * - entry_point
     ; Left right axis in bits 0,1
     ;    Up down axis in bits 2,3
     ;
-    ; (then call finish_read_controls to set z_h and z_l)
+    ; z_h holds the inverted bits of the controls
 
     jsr read_joystick
-    sta temp_controls
+    sta temp_controls                    ; remember the joystick state
     jsr read_keyboard
-    ora temp_controls
-    eor #&10                             ; invert fire state
-    pha                                
+    ora temp_controls                    ; combine the keyboard and joystick state
+    pha                                  ; A contains all controls (1 means pressed)
     and #&0f
-    sta z_as
+    sta z_as                             ; just the directions [not needed?]
     pla
-    jmp finish_read_controls
 
-;key_code_escape                       = $70
+    eor #&ff                             ; invert all the controls
+    sta z_h                              ; store in z_h (0 means pressed)
+    rts
+
+key_code_escape                       = $70
+key_code_colon                        = $48
+key_code_slash                        = $68
+key_code_close_square_bracket         = $58
+
 key_code_p                            = $37
 key_code_space                        = $62
-key_code_colon                        = $48
 key_code_return                       = $49
 key_code_x                            = $42
 key_code_z                            = $61
-key_code_slash                        = $68
+
+key_code_k                            = $46
+key_code_m                            = $65
 
 ; ****************************************
 .keys_to_test
     equb key_code_p
     equb key_code_space
     equb key_code_colon
-    equb key_code_return
+    equb key_code_close_square_bracket
     equb key_code_x
     equb key_code_z
     equb key_code_slash
