@@ -3,7 +3,7 @@
 ## Overview
 The Python build script `build.py` creates the files and SSD disk image for *Grime6502* on the BBC Micro.
 
-This is a recovery project and improved version of Grime6502 for the BBC Micro. The original is available in 
+This is a recovery and improved version of Grime6502 for the BBC Micro. The original is available in 
 binary from https://www.chibiakumas.com/6502/grime6502.php . The original is a quickly put together remake of 
 a DOS game.
 
@@ -12,12 +12,14 @@ so the source here was disassembled from the binary, and then labelled using the
 the code at https://www.youtube.com/watch?v=71-iRVYH6aY for reference.
 
 The code has now been expanded to allow keyboard controls as well as joysticks, and fixes were made to the 
-initialisation, the sound, the joystick code, and the random number routine. Some optimisations were also 
-made to rendering font characters and sprites, and to set the game speed to a reasonable rate. None of the 
-gameplay has been changed.
+initialisation, the sound, the joystick code, and the random number routine. Some optimisations were 
+made to rendering font characters and sprites, and to set the game speed to a reasonable rate. 
+
+None of the gameplay has been changed.
 
 ## Requirements
 * The beebasm assembler
+* Python 3
 
 ## Usage
     python3 build.py
