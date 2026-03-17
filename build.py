@@ -2,9 +2,7 @@
 """Build script for creating BBC Micro disk images for 'Grime6502-disc'.
 
 This script:
-- Disassembles the binaries using control files (see py8dis) into beebasm assembly
-- Assembles them back into binaries
-- Tokenizes BBC BASIC programs from text files
+- Assembles source into binaries
 - Packages everything into an SSD disk image
 """
 
@@ -13,7 +11,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools import bbc_basic_tokenizer  # For tokenising BASIC programs
 from tools import dfsimage             # For writing BBC disk images
 
 
@@ -22,22 +19,6 @@ script_dir = Path(__file__).resolve().parent
 
 
 # Helper functions
-def hextext_to_bin(src_path: str, dst_path: str) -> None:
-    """
-    Read a text file containing hexadecimal byte values (space or newline separated)
-    and write them back to a binary file.
-    Lines may contain comments (starting with '#') or extra whitespace, which are ignored.
-    """
-    import re
-
-    hex_byte_re = re.compile(r'\b([0-9A-Fa-f]{2})\b')
-    with open(src_path, 'r', encoding='utf-8') as fin, open(dst_path, 'wb') as fout:
-        for line in fin:
-            # drop inline comments
-            line = line.split('#', 1)[0]
-            for m in hex_byte_re.finditer(line):
-                fout.write(bytes([int(m.group(1), 16)]))
-
 def run_subprocess(args: list[str], error_message: str, cwd: Path | None = None) -> bytes:
     """Execute a subprocess and return stdout.
 
@@ -61,20 +42,6 @@ def run_subprocess(args: list[str], error_message: str, cwd: Path | None = None)
         if p.returncode:
             sys.exit(p.returncode)
     return p.stdout
-
-
-def disassemble(python_filepath: str, asm_filepath: str) -> None:
-    """Run a Python control script to create assembly files.
-
-    Args:
-        python_filepath: Relative path to the control script (within 'control' dir).
-        asm_filepath: Relative path for the output assembly file (within 'source' dir).
-    """
-    python_filepath_full = script_dir / 'control' / python_filepath
-    asm_filepath_full = script_dir / 'source' / asm_filepath
-
-    args = ['python3', str(python_filepath_full), f'--beebasm', '--output', str(asm_filepath_full)]
-    run_subprocess(args, 'disassemble failed', script_dir)
 
 
 def make_inf(binary_filepath: Path, bbc_bin_filename: str, load_address: int, exec_address: int, locked: str) -> None:
@@ -112,35 +79,6 @@ def assemble(asm_filepath: str, binary_filepath: str) -> None:
         f.write(report)
 
 
-def copy_text_to_bbc(source_filepath: Path, destination_filepath: Path) -> None:
-    """Copy a text file, converting line endings to BBC Micro format.
-
-    Args:
-        source_filepath: Path to the source text file.
-        destination_filepath: Path for the output file.
-    """
-    with open(source_filepath, 'rb') as f:
-        content = f.read()
-
-    # Replace host line terminator with BBC Micro line terminator (0x0d)
-    with open(destination_filepath, 'wb') as f:
-        f.write(content.replace(os.linesep.encode(), b'\x0d'))
-
-
-def tokenize_basic(source_filepath: Path, destination_filepath: Path) -> None:
-    """Tokenize a BBC BASIC source file.
-
-    Args:
-        source_filepath: Path to the BASIC source text file.
-        destination_filepath: Path for the tokenized output file.
-    """
-    with open(source_filepath, 'rb') as f:
-        tokenized_result = bbc_basic_tokenizer.tokenize_file(f, input_file_contains_escaped_chars=True)
-        with open(destination_filepath, 'wb') as file:
-            file.write(bytearray(tokenized_result))
-        return len(tokenized_result)
-
-
 def add_file(
     image: dfsimage.Image,
     input_file: Path | str,
@@ -176,7 +114,6 @@ def add_file(
 
 # Create binary $.!BOOT
 destination_filepath = script_dir / 'build' / 'disc' / '$.!BOOT'
-#disassemble('$.!BOOT.py', '$.!BOOT_beebasm.asm')
 assemble('$.!BOOT_beebasm.asm', '$.!BOOT')
 make_inf(destination_filepath, '$.!BOOT', 0x003000, 0x003000, '')
 
