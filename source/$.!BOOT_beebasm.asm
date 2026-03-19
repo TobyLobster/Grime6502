@@ -3621,20 +3621,16 @@ entry_length = * - entry_point
     adc #&30
     jmp print_char
 
+; ****************************************
 .compare_bcd
-    txa
-    tay
-    dey
-    sed
+    ldy #0
 .compare_bcd_loop
-    lda (z_l),y
-    cmp (z_e),y
+    lda (z_e),y         ; high score
+    cmp (z_l),y         ; score
     bne compare_bcd_done
-    dex
-    beq compare_bcd_done
-    dey
-    jmp compare_bcd_loop
-
+    iny
+    cpy #4
+    bne compare_bcd_loop
 .compare_bcd_done
     cld
     rts
