@@ -3632,7 +3632,6 @@ entry_length = * - entry_point
     cpy #4
     bne compare_bcd_loop
 .compare_bcd_done
-    cld
     rts
 
 ; ****************************************
